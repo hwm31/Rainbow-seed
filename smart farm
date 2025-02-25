@@ -1,0 +1,191 @@
+#include <SoftwareSerial.h>
+#include <DFRobot_DHT11.h>
+#include <Adafruit_NeoPixel.h>
+#include <LiquidCrystal_I2C.h>
+#include <SoftwareSerial.h>
+const int rx = 2;
+const int tx = 3;
+int water = 0;
+
+SoftwareSerial bt(rx, tx);
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+
+DFRobot_DHT11 DHT;
+
+#define DHTPIN 5 // 온습도센서 
+#define soilmoisturePin A0 // 토양습도센서 
+#define waterPinA 11 // 워터펌프 
+#define waterPinB 10
+#define red 7
+#define yellow 6
+#define green 9
+#define buzzer 4
+#define plantLED 13
+#define lcdPin A1
+
+Adafruit_NeoPixel plantNeo = Adafruit_NeoPixel(8, plantLED, NEO_GRB + NEO_KHZ800);
+
+char notes[] = "ccggaagffeeddcggffeedggffeedccggaagffeeddc";
+int beats[] = {1, 1, 1, 1, 1, 1, 2, 1, 1, 1, 1, 1, 1, 2, 4};
+int tempo = 300;
+
+void playTone(int tone, int duration) {
+  for (long i = 0; i < duration * 1000L; i += tone * 2) {
+    digitalWrite(buzzer, HIGH);
+    delayMicroseconds(tone);
+    digitalWrite(buzzer, LOW);
+    delayMicroseconds(tone);
+  }
+}
+
+void playNote(char note, int duration) {
+  char names[] = {'c', 'd', 'e', 'f', 'g', 'a', 'b', 'C'};
+  int tones[] = {1915, 1700, 1519, 1432, 1275, 1136, 1014, 956};
+
+  for (int i = 0; i < 8; i++) {
+    if (names[i] == note) {
+      playTone(tones[i], duration);
+    }
+  }
+}
+
+void setup() {
+  Serial.begin(9600);
+  bt.begin(9600); 
+  delay(1000);
+  
+  pinMode(soilmoisturePin, INPUT);
+  pinMode(waterPinA, OUTPUT);
+  pinMode(waterPinB, OUTPUT);
+  pinMode(red, OUTPUT);
+  pinMode(yellow, OUTPUT);
+  pinMode(green, OUTPUT);
+  pinMode(buzzer, OUTPUT);
+
+  plantNeo.setBrightness(255);
+  plantNeo.begin();
+  plantNeo.show();
+
+  Serial.println("SMART GARDEN");
+  Serial.println("ROBOTICS 8");
+  lcd.init();
+  lcd.backlight();
+  lcd.println("SMART GARDEN");
+  delay(1000);
+  
+  performMeasurement();
+}
+
+void loop() {
+  for (int i = 0; i < 8; i += 2) {
+    plantNeo.setPixelColor(i, plantNeo.Color(255, 0, 0));
+  }
+
+  for (int i = 1; i < 8; i += 2) {
+    plantNeo.setPixelColor(i, plantNeo.Color(0, 0, 255));
+  }
+
+  plantNeo.show();
+ 
+  unsigned long currentMillis = millis();
+  static unsigned long previousMillis = 0;
+  static const unsigned long measurementInterval = 60000; 
+
+  if (currentMillis - previousMillis >= measurementInterval) {
+    performMeasurement();
+    previousMillis = currentMillis;
+  }
+}
+
+void performMeasurement() {
+  int soilmoistureValue = analogRead(soilmoisturePin);
+  int soilmoisture_per = map(soilmoistureValue, 170, 1023, 100, 0);
+  
+  DHT.read(DHTPIN);
+
+  Serial.print("Soil Moisture:");
+  Serial.print(soilmoisture_per);
+  Serial.println("%");
+
+  Serial.print("Humidity:");
+  Serial.print(DHT.humidity);
+  Serial.println("%");
+
+  Serial.print("Temperature:");
+  Serial.println(DHT.temperature);
+
+  lcd.clear();
+  lcd.setCursor(0,0);
+  lcd.print("Soil Moist:");
+  lcd.print(soilmoisture_per);
+  lcd.print("%");
+  delay(100);
+
+  String inputData = String(DHT.humidity) + "," + String(DHT.temperature) + "," + String(soilmoisture_per) + "," + String(water);
+  bt.println(inputData);
+
+  byte outputData = btSerial.read();
+
+  if (soilmoisture_per < 30 || outputData == '2') {
+
+    Serial.println("Plant needs water");
+    
+    digitalWrite(red, HIGH);
+    digitalWrite(yellow, LOW);
+    digitalWrite(green, LOW);
+    delay(1000);
+
+    digitalWrite(red, LOW);
+    digitalWrite(yellow, LOW);
+    digitalWrite(green, LOW);
+    delay(1000);
+
+    digitalWrite(waterPinA, HIGH);
+    digitalWrite(waterPinB, LOW);
+    delay(2000);
+
+    digitalWrite(waterPinA, LOW);
+    digitalWrite(waterPinB, LOW);
+    delay(5000);
+
+    water = 1;
+
+    lcd.clear();
+    delay(200);
+    lcd.setCursor(0,1);
+    lcd.print("Water a plant");
+     
+    Serial.println("Water a plant");
+
+    digitalWrite(red, LOW);
+    digitalWrite(yellow, LOW);
+    digitalWrite(green, HIGH);
+    delay(2000);
+
+    for (int i = 0; i < 15; i++) {
+      if (notes[i] == ' ') {
+        delay(beats[i] * tempo);
+      } else {
+        playNote(notes[i], beats[i] * tempo);
+      }
+      delay(tempo / 2);
+    }
+  } 
+  
+  else {
+    water = 0;
+    
+    digitalWrite(red, LOW);
+    digitalWrite(yellow, HIGH);
+    digitalWrite(green, LOW);
+    delay(1000);
+
+    lcd.clear();
+    lcd.setCursor(0,0);
+    lcd.print("Water enough");
+    delay(1000);
+
+    Serial.println("Water enough");
+    
+  }
+}
